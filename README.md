@@ -1,0 +1,99 @@
+# Demarcator
+
+Demarcator is an SMB-facing AI control plane. This repository implements the first working slice of that architecture:
+
+- a backend that owns connector policy, workflow access, approvals, and audit events
+- an HTTP API for summary, workflow execution, approvals, and activity history
+- a local `pi` bridge CLI that submits workflow runs to the backend instead of baking business policy into `pi`
+
+The design goal is to keep `pi` replaceable. `pi` runs workflows, but Demarcator decides:
+
+- who can run them
+- which sources are allowed
+- whether a proposed action is blocked, drafted, or sent for approval
+- what gets written to the audit trail
+
+## Quick start
+
+Create a virtual environment if you want one, then install the package in editable mode:
+
+```bash
+python -m pip install -e .
+```
+
+Start the API:
+
+```bash
+python -m demarcator.api --host 127.0.0.1 --port 8080
+```
+
+Run the included tests:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Example API calls
+
+Inspect the seeded summary:
+
+```bash
+curl http://127.0.0.1:8080/summary
+```
+
+Run a workflow directly:
+
+```bash
+curl -X POST http://127.0.0.1:8080/runs \
+  -H 'content-type: application/json' \
+  -d '{
+    "actor_id": "olivia-operator",
+    "workflow_id": "ops-exception-review",
+    "requested_sources": [
+      {"connector_id": "email", "scope": "mailbox/operations"},
+      {"connector_id": "quickbooks", "scope": "reports/ar-aging"},
+      {"connector_id": "quickbooks", "scope": "payroll"}
+    ],
+    "requested_action": {
+      "type": "send_email",
+      "summary": "Email the customer with the exception summary."
+    }
+  }'
+```
+
+The request above will:
+
+- allow email access
+- allow QuickBooks `reports/ar-aging`
+- block QuickBooks `payroll`
+- create a pending approval because the workflow requires approval for actions
+
+Approve the generated action:
+
+```bash
+curl -X POST http://127.0.0.1:8080/approvals/<approval-id>/decision \
+  -H 'content-type: application/json' \
+  -d '{
+    "reviewer_id": "riley-reviewer",
+    "decision": "approve",
+    "note": "Looks safe."
+  }'
+```
+
+## `pi` bridge usage
+
+The bridge CLI is the local integration point intended to be called from `pi` commands, skills, or packages:
+
+```bash
+python -m demarcator.pi_bridge \
+  --server http://127.0.0.1:8080 \
+  --actor olivia-operator \
+  --workflow ops-exception-review \
+  --source email:mailbox/operations \
+  --source quickbooks:reports/ar-aging \
+  --source quickbooks:payroll \
+  --action-type send_email \
+  --action-summary "Email the customer with the exception summary."
+```
+
+This keeps workflow policy enforcement in Demarcator while letting `pi` act as the execution entrypoint.
