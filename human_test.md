@@ -2,18 +2,20 @@
 
 This file is the manual test checklist for the current Demarcator slice.
 
+Manual verification was run successfully against a live local API on March 21, 2026.
+
 ## 1. Start the API
 
 From the repo root:
 
 ```bash
-python -m demarcator.api --host 127.0.0.1 --port 8080
+uv run python -m demarcator.api --host 127.0.0.1 --port 8080 --db-path ./demarcator.db
 ```
 
 Expected result:
 
 - the process starts without crashing
-- terminal prints `Demarcator API listening on http://127.0.0.1:8080`
+- terminal prints `Demarcator API listening on http://127.0.0.1:8080 using ./demarcator.db`
 
 ## 2. Confirm health and seeded summary
 
@@ -28,6 +30,11 @@ Check:
 
 - `/health` returns `{"status": "ok"}`
 - `/summary` returns counts for connected sources, workflows, runs, approvals, and alerts
+
+Observed result:
+
+- `/health` returned `{"status": "ok"}`
+- initial `/summary` returned 4 connected sources, 3 active workflows, 0 runs, 0 pending approvals, and 0 alerts
 
 ## 3. Inspect seeded admin data
 
@@ -46,6 +53,12 @@ Check:
 - workflows include `ops-exception-review`, `daily-activity-digest`, `customer-followup-draft`
 - rules show limited allowed scopes rather than broad access
 - people show simple role assignments and workflow grants
+
+Observed result:
+
+- connectors and workflows matched the seeded bootstrap data
+- `hubspot` was `degraded`
+- people and workflow grants matched the expected seed state
 
 ## 4. Run an allowed read-only workflow
 
@@ -70,6 +83,12 @@ Check:
 - blocked sources is empty
 - action mode is `read_only`
 
+Observed result:
+
+- response returned `status: success`
+- one spreadsheet source was allowed
+- no sources were blocked
+
 ## 5. Confirm blocked source behavior
 
 Run:
@@ -93,6 +112,13 @@ Check:
 - `quickbooks/payroll` appears under `blocked_sources`
 - `/alerts` contains a blocked-access alert
 - `/audit` contains a workflow run event with allowed and blocked sources
+
+Observed result:
+
+- run returned `status: success`
+- `quickbooks/payroll` was blocked
+- `/alerts` contained `blocked_access_attempt`
+- `/audit` contained the allowed and blocked source breakdown plus the correlation ID
 
 ## 6. Confirm approval-required action flow
 
@@ -121,6 +147,11 @@ Check:
 - response contains `approval_id`
 - `/approvals` shows a pending item with source data and action summary
 
+Observed result:
+
+- run returned `status: pending_approval`
+- a real `approval_id` was returned and appeared in `/approvals`
+
 ## 7. Approve a pending action
 
 Replace `<approval-id>` with the actual value from the previous step:
@@ -140,6 +171,12 @@ Check:
 - approval status changes to `approved`
 - linked run status changes to `success`
 - `/audit` records an `approval_decision` event
+
+Observed result:
+
+- approval changed to `approved`
+- run changed to `success`
+- `/audit` recorded an `approval_decision`
 
 ## 8. Reject a pending action
 
@@ -161,6 +198,12 @@ Check:
 - run status changes to `blocked`
 - `/alerts` contains an `approval_rejected` alert
 
+Observed result:
+
+- approval changed to `rejected`
+- run changed to `blocked`
+- `/alerts` contained `approval_rejected`
+
 ## 9. Confirm permission enforcement
 
 Run:
@@ -181,6 +224,11 @@ Check:
 
 - response status is `403`
 - error says the user cannot run the workflow
+
+Observed result:
+
+- API returned `403`
+- error text was `User victor-viewer cannot run workflow daily-activity-digest.`
 
 ## 10. Confirm read-only workflows block side effects
 
@@ -206,14 +254,20 @@ Check:
 
 - run status is `blocked`
 - action outcome is `blocked`
-- `/alerts` records an `action_blocked` event
+- `/alerts` records an `action_blocked` alert
+
+Observed result:
+
+- run returned `status: blocked`
+- action outcome was `blocked`
+- `/alerts` contained `action_blocked`
 
 ## 11. Test the `pi` bridge CLI
 
 With the API still running:
 
 ```bash
-python -m demarcator.pi_bridge \
+uv run python -m demarcator.pi_bridge \
   --server http://127.0.0.1:8080 \
   --actor olivia-operator \
   --workflow ops-exception-review \
@@ -229,17 +283,41 @@ Check:
 - payload shape matches the direct API call
 - resulting approval appears in `/approvals`
 
+Observed result:
+
+- CLI successfully created an approval-required run
+- the response shape matched the direct `/runs` API behavior
+
 ## 12. Run automated tests
 
 Run:
 
 ```bash
-python -m unittest discover -s tests -v
+uv run python -m unittest discover -s tests -v
 ```
 
 Check:
 
 - all tests pass
+
+Observed result:
+
+- `uv run python -m unittest discover -s tests -v` passed
+
+## 13. Confirm state survives restart
+
+Create at least one run or approval, stop the API, then start it again with the same `--db-path`:
+
+```bash
+uv run python -m demarcator.api --host 127.0.0.1 --port 8080 --db-path ./demarcator.db
+```
+
+Check:
+
+- `/activity` still contains the previous run records
+- `/approvals` still contains any pending or decided approvals
+- `/audit` still contains prior audit history
+- `/alerts` still contains prior alerts
 
 ## Notes to capture while testing
 

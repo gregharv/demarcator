@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -18,7 +19,12 @@ from demarcator.services import PermissionDeniedError
 
 class DemarcatorServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.service = create_seeded_service()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = str(Path(self.temp_dir.name) / "demarcator-test.db")
+        self.service = create_seeded_service(self.db_path)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
 
     def test_run_requires_workflow_grant(self) -> None:
         request = RunRequest(
@@ -43,6 +49,7 @@ class DemarcatorServiceTests(unittest.TestCase):
         self.assertEqual(len(run.allowed_sources), 1)
         self.assertEqual(len(run.blocked_sources), 1)
         self.assertEqual(run.blocked_sources[0].scope, "payroll")
+        self.assertEqual(self.service.summary()["alerts_open"], 1)
 
     def test_approval_required_action_creates_pending_approval(self) -> None:
         request = RunRequest(
@@ -55,7 +62,9 @@ class DemarcatorServiceTests(unittest.TestCase):
         self.assertEqual(run.status, RunStatus.PENDING_APPROVAL)
         self.assertIsNotNone(run.approval_id)
 
-        approval = self.service.store.approvals[run.approval_id]
+        approval = self.service.store.get_approval(run.approval_id or "")
+        self.assertIsNotNone(approval)
+        assert approval is not None
         self.assertEqual(approval.status, ApprovalStatus.PENDING)
         self.assertEqual(approval.run_id, run.run_id)
 
@@ -90,6 +99,28 @@ class DemarcatorServiceTests(unittest.TestCase):
         run = self.service.run_workflow(request)
         self.assertEqual(run.status, RunStatus.BLOCKED)
         self.assertEqual(run.action_outcome, "blocked")
+        alerts = self.service.list_alerts()
+        self.assertEqual(alerts[0]["alert_type"], "action_blocked")
+
+    def test_seed_data_persists_across_service_restart(self) -> None:
+        first_service = create_seeded_service(self.db_path)
+        second_service = create_seeded_service(self.db_path)
+        self.assertEqual(len(first_service.list_connectors()), 4)
+        self.assertEqual(len(second_service.list_connectors()), 4)
+        self.assertEqual(len(second_service.list_people()), 4)
+
+    def test_run_persists_across_service_restart(self) -> None:
+        request = RunRequest(
+            actor_id="olivia-operator",
+            workflow_id="daily-activity-digest",
+            requested_sources=[RequestedSource(connector_id="spreadsheets", scope="dashboards/daily")],
+        )
+        run = self.service.run_workflow(request)
+
+        restarted = create_seeded_service(self.db_path)
+        activity = restarted.list_activity()
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity[0]["run_id"], run.run_id)
 
     def test_pi_bridge_payload_shape(self) -> None:
         class Args:

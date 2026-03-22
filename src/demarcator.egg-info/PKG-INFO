@@ -1,3 +1,11 @@
+Metadata-Version: 2.4
+Name: demarcator
+Version: 0.1.0
+Summary: SMB AI control plane built around policy, approvals, and auditability.
+Requires-Python: >=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: fastlite>=0.2.4
+
 # Demarcator
 
 Demarcator is an SMB-facing AI control plane. This repository implements the first working slice of that architecture:
@@ -13,47 +21,24 @@ The design goal is to keep `pi` replaceable. `pi` runs workflows, but Demarcator
 - whether a proposed action is blocked, drafted, or sent for approval
 - what gets written to the audit trail
 
-## High-Level Overview
-
-Demarcator is meant to become an SMB-facing AI control plane built on top of an agent/runtime layer such as `pi`, not a chatbot product or a generic orchestration framework. The product goal is to give a business operator one place to see what AI workflows can access, who can run them, which actions need approval, what happened during execution, and what needs follow-up.
-
-In practical terms, this repository is building the trust and control layer around AI-assisted workflows:
-
-- connected systems and workflow access
-- policy-based data scoping
-- approval gates for risky actions
-- persistent audit history
-- operational visibility through summary, activity, approvals, and alerts
-
-## Project References
-
-- [summary.md](summary.md)
-  Product-direction document describing the business problem, target user, v1 scope, and the intended control-plane experience.
-- [human_test.md](human_test.md)
-  Manual verification checklist for running the API and validating the current control-plane behavior.
-- [next_steps.md](next_steps.md)
-  Implementation roadmap for the next major phases after the current SQLite-backed prototype.
-- [code_process.md](code_process.md)
-  Architecture and code walkthrough covering request flow, persistence flow, and the purpose of each source file and function.
-
 ## Quick start
 
 Create a virtual environment if you want one, then install the package in editable mode:
 
 ```bash
-uv sync
+python -m pip install -e .
 ```
 
 Start the API:
 
 ```bash
-uv run python -m demarcator.api --host 127.0.0.1 --port 8080 --db-path ./demarcator.db
+python -m demarcator.api --host 127.0.0.1 --port 8080
 ```
 
 Run the included tests:
 
 ```bash
-uv run python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v
 ```
 
 ## Example API calls
@@ -108,7 +93,7 @@ curl -X POST http://127.0.0.1:8080/approvals/<approval-id>/decision \
 The bridge CLI is the local integration point intended to be called from `pi` commands, skills, or packages:
 
 ```bash
-uv run python -m demarcator.pi_bridge \
+python -m demarcator.pi_bridge \
   --server http://127.0.0.1:8080 \
   --actor olivia-operator \
   --workflow ops-exception-review \
@@ -120,11 +105,3 @@ uv run python -m demarcator.pi_bridge \
 ```
 
 This keeps workflow policy enforcement in Demarcator while letting `pi` act as the execution entrypoint.
-
-## Persistence
-
-The API now uses a SQLite database via `fastlite`.
-
-- pass `--db-path` to choose the database file
-- if the database is empty, Demarcator seeds the demo users, workflows, connectors, rules, and grants once
-- runs, approvals, alerts, and audit events persist across API restarts

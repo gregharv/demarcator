@@ -1,0 +1,3 @@
+[console_scripts]
+demarcator-api = demarcator.api:main
+demarcator-pi-run = demarcator.pi_bridge:main
